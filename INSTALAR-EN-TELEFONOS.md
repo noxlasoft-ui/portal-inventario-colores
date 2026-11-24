@@ -1,6 +1,6 @@
 # Instalación en Android y iPhone
 
-La aplicación se publica como PWA en HTTPS: [abrir Portal de pedidos](https://jorgealbertt.github.io/portal-inventario/). No necesitas descargar un APK para Android ni un archivo IPA para iPhone.
+La aplicación se publica como PWA en HTTPS: [abrir Portal de pedidos](https://noxlasoft-ui.github.io/portal-inventario-colores/). No necesitas descargar un APK para Android ni un archivo IPA para iPhone.
 
 ## Android
 

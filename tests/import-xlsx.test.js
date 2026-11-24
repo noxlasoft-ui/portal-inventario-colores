@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { zipSync } from "fflate";
 import { createWorkbookBytes } from "../src/export-xlsx.js";
 import { parseOrderWorkbook } from "../src/import-xlsx.js";
+import { getPersianaColorFromDescription } from "../src/persiana-colors.js";
 
 function workbook(sheetXml, sharedStrings = []) {
   const entries = {
@@ -58,6 +59,34 @@ test("can continue from a workbook exported by the portal", () => {
     quantity: 2.5,
     unit: "CJ"
   }]);
+});
+
+test("preserves the selected persiana color when a downloaded order is re-imported", () => {
+  const product = {
+    code: "001121",
+    item: "100PZ",
+    fullDescription: "100PZ PERSIANA",
+    shortDescription: "PERSIANA",
+    department: "025",
+    brand: "PERSIANA",
+    cost: 0,
+    price: 18.32
+  };
+  const bytes = createWorkbookBytes([product], {
+    manager: "",
+    phone: "",
+    orderNumber: "0000042",
+    lines: [{
+      product,
+      quantity: 1,
+      unit: "UND",
+      color: { code: "11-2", color: "Negro" }
+    }]
+  });
+  const result = parseOrderWorkbook(bytes);
+
+  assert.equal(result.lines[0].description, "PERSIANA · Color elegido: 11-2 · Negro");
+  assert.equal(getPersianaColorFromDescription(product, result.lines[0].description).color, "Negro");
 });
 
 test("keeps valid rows and reports rows with unsupported units", () => {

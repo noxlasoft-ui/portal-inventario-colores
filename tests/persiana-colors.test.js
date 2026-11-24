@@ -1,6 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { getPersianaColors, productSearchValues } from "../src/persiana-colors.js";
+import {
+  getPersianaColorByCode,
+  getPersianaColorFromDescription,
+  getPersianaColors,
+  productSearchValues
+} from "../src/persiana-colors.js";
 
 function persiana(item) {
   return { item, fullDescription: `${item} PERSIANA`, brand: "PERSIANA" };
@@ -40,4 +45,15 @@ test("makes color codes and names searchable without classifying unrelated produ
   assert.match(searchable, /gris claro/);
   assert.deepEqual(getPersianaColors({ item: "100X220BKFF PERSIANA" }), []);
   assert.deepEqual(getPersianaColors({ item: "100PZ CEPILLO" }), []);
+});
+
+test("resolves selected colors from codes and exported order descriptions", () => {
+  const product = persiana("100PZ");
+
+  assert.equal(getPersianaColorByCode(product, "11-2").color, "Negro");
+  assert.equal(
+    getPersianaColorFromDescription(product, "PERSIANA · Color elegido: MARRON VIEJO · Marron viejo").code,
+    "MARRON VIEJO"
+  );
+  assert.equal(getPersianaColorFromDescription(product, "Descripción sin selección"), null);
 });

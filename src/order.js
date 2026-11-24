@@ -1,3 +1,5 @@
+import { getPersianaColorByCode, getPersianaColors } from "./persiana-colors.js";
+
 export const UNITS = ["CJ", "UND", "MT", "PAQ", "JGO"];
 
 function roundQuantity(value) {
@@ -38,15 +40,17 @@ export function normalizeDraft(value) {
         },
         quantity,
         unit,
+        color: getPersianaColorByCode(product, line?.color?.code),
         missing: Boolean(line.missing)
       }];
     })
   };
 }
 
-export function addLine(draft, product, quantity, unit) {
+export function addLine(draft, product, quantity, unit, color = null) {
   const amount = roundQuantity(quantity);
   const normalizedUnit = String(unit || "").trim().toUpperCase();
+  const selectedColor = color ? getPersianaColorByCode(product, color.code) : null;
   if (!product || !String(product.code || "").trim()) {
     throw new Error("Selecciona un producto válido.");
   }
@@ -56,19 +60,24 @@ export function addLine(draft, product, quantity, unit) {
   if (!UNITS.includes(normalizedUnit)) {
     throw new Error("Selecciona una unidad de medida válida.");
   }
+  if (color && !selectedColor) {
+    throw new Error("Selecciona un color válido para este producto.");
+  }
 
   const lines = draft.lines.map((line) => ({ ...line }));
   const existing = lines.find(
     (line) =>
       !line.missing &&
       line.product.code.toLocaleLowerCase("es") === String(product.code).trim().toLocaleLowerCase("es") &&
-      line.unit === normalizedUnit
+      line.unit === normalizedUnit &&
+      (line.color?.code || "") === (selectedColor?.code || "")
   );
   if (existing) {
     existing.quantity = roundQuantity(existing.quantity + amount);
     existing.product = product;
+    existing.color = selectedColor;
   } else {
-    lines.push({ product, quantity: amount, unit: normalizedUnit, missing: false });
+    lines.push({ product, quantity: amount, unit: normalizedUnit, color: selectedColor, missing: false });
   }
   return { ...draft, lines };
 }
@@ -81,13 +90,19 @@ export function updateLine(draft, index, changes) {
     if (lineIndex !== index) return line;
     const quantity = changes.quantity === undefined ? line.quantity : roundQuantity(changes.quantity);
     const unit = changes.unit === undefined ? line.unit : String(changes.unit).trim().toUpperCase();
+    const color = changes.colorCode === undefined
+      ? line.color
+      : getPersianaColorByCode(line.product, changes.colorCode);
     if (!Number.isFinite(quantity) || quantity <= 0) {
       throw new Error("La cantidad debe ser mayor que cero.");
     }
     if (!UNITS.includes(unit)) {
       throw new Error("Selecciona una unidad de medida válida.");
     }
-    return { ...line, quantity, unit };
+    if (changes.colorCode !== undefined && changes.colorCode !== "" && !color) {
+      throw new Error("Selecciona un color válido para este producto.");
+    }
+    return { ...line, quantity, unit, color };
   });
   return { ...draft, lines };
 }
@@ -108,9 +123,15 @@ export function reconcileDraft(draft, products) {
     lines: draft.lines.map((line) => {
       const key = String(line.product?.code || "").trim().toLocaleLowerCase("es");
       const current = byCode.get(key);
-      return current
-        ? { ...line, product: current, missing: false }
-        : { ...line, missing: true };
+      if (current) {
+        return {
+          ...line,
+          product: current,
+          color: getPersianaColorByCode(current, line.color?.code),
+          missing: false
+        };
+      }
+      return { ...line, missing: true };
     })
   };
 }
@@ -119,8 +140,17 @@ export function countMissingLines(draft) {
   return draft.lines.filter((line) => line.missing).length;
 }
 
+export function countMissingColorLines(draft) {
+  return draft.lines.filter((line) =>
+    !line.color && getPersianaColors(line.product).length > 0
+  ).length;
+}
+
 export function isExportable(draft, inventory) {
-  return inventory.length > 0 && draft.lines.length > 0 && countMissingLines(draft) === 0;
+  return inventory.length > 0 &&
+    draft.lines.length > 0 &&
+    countMissingLines(draft) === 0 &&
+    countMissingColorLines(draft) === 0;
 }
 
 export function countCases(draft) {

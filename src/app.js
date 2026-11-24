@@ -2,10 +2,16 @@ import "./styles.css";
 import { formatInventorySummary, parseInventory } from "./inventory.js";
 import { parseOrderWorkbook } from "./import-xlsx.js";
 import { createWorkbookBlob, safeOrderFilename } from "./export-xlsx.js";
-import { getPersianaColors, productSearchValues } from "./persiana-colors.js";
+import {
+  getPersianaColorByCode,
+  getPersianaColorFromDescription,
+  getPersianaColors,
+  productSearchValues
+} from "./persiana-colors.js";
 import {
   addLine,
   countCases,
+  countMissingColorLines,
   countMissingLines,
   emptyDraft,
   isExportable,
@@ -114,6 +120,8 @@ function syncControlStates() {
   const hasInventory = state.inventory.length > 0;
   const canExport = isExportable(state.draft, state.inventory);
   const hasLines = state.draft.lines.length > 0;
+  const availableColors = getPersianaColors(selectedProduct);
+  const selectedColor = availableColors.find(({ code }) => code === $("persianaColorInput").value);
 
   $("loadButton").disabled = isImporting;
   $("repoLoadButton").disabled = isImporting || location.protocol === "file:";
@@ -123,7 +131,8 @@ function syncControlStates() {
   $("departmentFilter").disabled = isImporting || !hasInventory;
   $("quantityInput").disabled = isImporting || !hasInventory;
   $("unitInput").disabled = isImporting || !hasInventory;
-  $("addButton").disabled = isImporting || !hasInventory || !selectedProduct;
+  $("persianaColorInput").disabled = isImporting || !hasInventory || !availableColors.length;
+  $("addButton").disabled = isImporting || !hasInventory || !selectedProduct || (availableColors.length > 0 && !selectedColor);
   $("orderExcelToggle").disabled = isImporting || !hasInventory;
   $("orderExcelFile").disabled = isImporting || !hasInventory;
   $("managerInput").disabled = isImporting;
@@ -217,6 +226,7 @@ function renderProducts() {
 function renderOrder() {
   const draft = state.draft;
   const missing = countMissingLines(draft);
+  const missingColors = countMissingColorLines(draft);
   const lineCount = draft.lines.length;
   const countText = `${lineCount.toLocaleString("es-VE")} ${lineCount === 1 ? "producto" : "productos"}`;
   $("rowCounter").textContent = countText;
@@ -228,7 +238,9 @@ function renderOrder() {
   if ($("orderInput").value !== draft.orderNumber) $("orderInput").value = draft.orderNumber;
   $("orderHint").textContent = missing
     ? "Hay productos que debes revisar antes de descargar."
-    : "Los cambios se guardan automáticamente.";
+    : missingColors
+      ? "Elige un color para cada persiana antes de descargar."
+      : "Los cambios se guardan automáticamente.";
   const notice = $("reconcileNotice");
   notice.hidden = !missing;
   notice.textContent = missing
@@ -241,18 +253,22 @@ function renderOrder() {
     syncControlStates();
     return;
   }
-  content.innerHTML = `<div class="request-lines">${draft.lines.map((line, index) => `
-    <div class="order-line">
-      <span class="order-line-product">
-        <strong>${escapeHtml(line.product.fullDescription || line.product.item)}</strong>
-        <small class="${line.missing ? "stale-label" : ""}">${escapeHtml(line.product.code)}${line.missing ? " · No está en el inventario actual" : ""}</small>
-      </span>
-      <input class="line-quantity" type="number" min="0.01" step="any" value="${escapeHtml(line.quantity)}" aria-label="Cantidad para ${escapeHtml(line.product.item)}" data-line-quantity="${index}">
-      <select class="line-unit" aria-label="Unidad para ${escapeHtml(line.product.item)}" data-line-unit="${index}">
-        ${UNITS.map((unit) => `<option${line.unit === unit ? " selected" : ""}>${unit}</option>`).join("")}
-      </select>
-      <button class="remove-line" type="button" aria-label="Eliminar ${escapeHtml(line.product.item)}" data-remove-line="${index}">×</button>
-    </div>`).join("")}</div>`;
+  content.innerHTML = `<div class="request-lines">${draft.lines.map((line, index) => {
+    const colors = getPersianaColors(line.product);
+    return `
+      <div class="order-line">
+        <span class="order-line-product">
+          <strong>${escapeHtml(line.product.fullDescription || line.product.item)}</strong>
+          <small class="${line.missing ? "stale-label" : ""}">${escapeHtml(line.product.code)}${line.missing ? " · No está en el inventario actual" : ""}</small>
+        </span>
+        <input class="line-quantity" type="number" min="0.01" step="any" value="${escapeHtml(line.quantity)}" aria-label="Cantidad para ${escapeHtml(line.product.item)}" data-line-quantity="${index}">
+        <select class="line-unit" aria-label="Unidad para ${escapeHtml(line.product.item)}" data-line-unit="${index}">
+          ${UNITS.map((unit) => `<option${line.unit === unit ? " selected" : ""}>${unit}</option>`).join("")}
+        </select>
+        <button class="remove-line" type="button" aria-label="Eliminar ${escapeHtml(line.product.item)}" data-remove-line="${index}">×</button>
+        ${colors.length ? `<label class="order-line-color"><span>Color para preparar</span><select class="line-color" required aria-label="Color para ${escapeHtml(line.product.item)}" data-line-color="${index}"><option value="">Selecciona un color</option>${colors.map(({ code, color }) => `<option value="${escapeHtml(code)}"${line.color?.code === code ? " selected" : ""}>${escapeHtml(code)} · ${escapeHtml(color)}</option>`).join("")}</select></label>` : ""}
+      </div>`;
+  }).join("")}</div>`;
   syncControlStates();
 }
 
@@ -263,7 +279,16 @@ function renderAll() {
 }
 
 function setSelectedProduct(product) {
+  const sameProduct = selectedProduct?.code === product?.code;
   selectedProduct = product;
+  const colors = getPersianaColors(product);
+  const colorInput = $("persianaColorInput");
+  colorInput.replaceChildren(new Option("Selecciona un color", ""));
+  for (const { code, color } of colors) {
+    colorInput.add(new Option(`${code} · ${color}`, code));
+  }
+  if (!sameProduct) colorInput.value = "";
+  $("persianaColorField").hidden = !colors.length;
   $("selectedProduct").textContent = product
     ? `${product.code} · ${product.fullDescription}`
     : "Toca un producto del catálogo.";
@@ -320,12 +345,10 @@ async function commitInventoryText(xmlText, fileName, fileSize, confirmReplaceme
   state.inventory = nextState.inventory;
   state.inventoryInfo = nextState.inventoryInfo;
   state.draft = nextState.draft;
-  selectedProduct = null;
+  setSelectedProduct(null);
   visibleProducts = PAGE_SIZE;
   $("searchInput").value = "";
   $("departmentFilter").value = "";
-  $("selectedProduct").textContent = "Toca un producto del catálogo.";
-  $("selectedProduct").parentElement.classList.remove("has-selection");
   renderDepartments();
   renderAll();
 
@@ -422,7 +445,9 @@ async function importOrderFile(file) {
         const code = importedLine.code.trim();
         const product = byCode.get(code.toLocaleLowerCase("es"));
         if (product) {
-          nextDraft = addLine(nextDraft, product, importedLine.quantity, importedLine.unit);
+          const color = getPersianaColorByCode(product, importedLine.colorCode) ||
+            getPersianaColorFromDescription(product, importedLine.description);
+          nextDraft = addLine(nextDraft, product, importedLine.quantity, importedLine.unit, color);
         } else {
           const fullDescription = [importedLine.item, importedLine.description].filter(Boolean).join(" ").trim() || code;
           const item = importedLine.item || fullDescription.split(/\s+/)[0];
@@ -489,7 +514,11 @@ async function importOrderFile(file) {
 
 function downloadOrder() {
   if (!isExportable(state.draft, state.inventory)) {
-    showToast(countMissingLines(state.draft) ? "Revisa los productos que ya no están en el inventario." : "Agrega al menos un producto al pedido.");
+    showToast(countMissingLines(state.draft)
+      ? "Revisa los productos que ya no están en el inventario."
+      : countMissingColorLines(state.draft)
+        ? "Elige un color para cada persiana antes de descargar."
+        : "Agrega al menos un producto al pedido.");
     return;
   }
   try {
@@ -612,8 +641,15 @@ function configureOrderControls() {
   });
   const addSelected = () => {
     if (!selectedProduct) return;
+    const colors = getPersianaColors(selectedProduct);
+    const selectedColor = colors.find(({ code }) => code === $("persianaColorInput").value);
+    if (colors.length && !selectedColor) {
+      showToast("Elige el color de la persiana antes de agregarla.");
+      $("persianaColorInput").focus();
+      return;
+    }
     try {
-      saveDraft(addLine(state.draft, selectedProduct, $("quantityInput").value, $("unitInput").value));
+      saveDraft(addLine(state.draft, selectedProduct, $("quantityInput").value, $("unitInput").value, selectedColor));
       $("quantityInput").value = "1";
       showToast("Producto agregado al pedido.");
     } catch (error) {
@@ -622,16 +658,23 @@ function configureOrderControls() {
     }
   };
   $("addButton").addEventListener("click", addSelected);
+  $("persianaColorInput").addEventListener("change", syncControlStates);
   $("quantityInput").addEventListener("keydown", (event) => {
     if (event.key === "Enter") addSelected();
   });
   $("requestContent").addEventListener("change", (event) => {
     const quantity = event.target.closest("[data-line-quantity]");
     const unit = event.target.closest("[data-line-unit]");
-    if (!quantity && !unit) return;
-    const index = Number((quantity || unit).dataset[quantity ? "lineQuantity" : "lineUnit"]);
+    const color = event.target.closest("[data-line-color]");
+    if (!quantity && !unit && !color) return;
+    const input = quantity || unit || color;
+    const index = Number(input.dataset[quantity ? "lineQuantity" : unit ? "lineUnit" : "lineColor"]);
     try {
-      const changes = quantity ? { quantity: quantity.value } : { unit: unit.value };
+      const changes = quantity
+        ? { quantity: quantity.value }
+        : unit
+          ? { unit: unit.value }
+          : { colorCode: color.value };
       saveDraft(updateLine(state.draft, index, changes));
     } catch (error) {
       showToast(error.message);

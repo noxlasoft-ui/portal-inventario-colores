@@ -160,7 +160,9 @@ function orderSheet(templateXml, draft) {
     const sourceRow = templateRows.get(sourceRowNumber);
     if (!sourceRow) throw new Error(`Falta el formato de la fila ${sourceRowNumber} en la plantilla del pedido.`);
     let row = cloneRow(sourceRow, sourceRowNumber, rowNumber);
-    const description = line.product.shortDescription || line.product.fullDescription || line.product.item || "";
+    const productDescription = line.product.shortDescription || line.product.fullDescription || line.product.item || "";
+    const colorDescription = line.color ? ` · Color elegido: ${line.color.code} · ${line.color.color}` : "";
+    const description = `${productDescription}${colorDescription}`;
     row = replaceCell(row, `A${rowNumber}`, line.product.code);
     row = replaceCell(row, `B${rowNumber}`, line.product.item);
     row = replaceCell(row, `D${rowNumber}`, description);

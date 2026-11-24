@@ -54,6 +54,15 @@ export function getPersianaColors(product) {
   return [];
 }
 
+export function getPersianaColorByCode(product, code) {
+  return getPersianaColors(product).find((color) => color.code === String(code ?? "")) || null;
+}
+
+export function getPersianaColorFromDescription(product, description) {
+  const match = /\bCOLOR ELEGIDO:\s*(.+?)\s*·/i.exec(String(description ?? ""));
+  return getPersianaColorByCode(product, match?.[1]);
+}
+
 export function productSearchValues(product) {
   const colors = getPersianaColors(product);
   return [

@@ -101,6 +101,35 @@ test("extends the reference row format and merged columns past its 79-row sample
   assert.match(workbook, /'Table 1'!\$A\$6:\$H\$86/);
 });
 
+test("includes the selected persiana color in the order description", () => {
+  const product = {
+    code: "001121",
+    item: "100PZ",
+    fullDescription: "100PZ PERSIANA",
+    shortDescription: "PERSIANA",
+    department: "025",
+    brand: "PERSIANA",
+    cost: 0,
+    price: 18.32
+  };
+  const bytes = createWorkbookBytes([product], {
+    manager: "",
+    phone: "",
+    orderNumber: "0000042",
+    lines: [{
+      product,
+      quantity: 2,
+      unit: "CJ",
+      color: { code: "MARRON VIEJO", color: "Marron viejo" }
+    }]
+  });
+  const orderSheet = textEntry(storedZipEntries(bytes), "xl/worksheets/sheet1.xml");
+
+  assert.equal(cellValue(orderSheet, "D7"), "PERSIANA · Color elegido: MARRON VIEJO · Marron viejo");
+  assert.equal(cellValue(orderSheet, "A7"), "001121");
+  assert.equal(cellValue(orderSheet, "G7"), "2 CJ");
+});
+
 test("requires an inventory and at least one product before generating an order", () => {
   assert.throws(() => createWorkbookBytes([], { lines: [] }), /Carga el inventario/);
 });
