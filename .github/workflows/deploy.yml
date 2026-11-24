@@ -7,18 +7,13 @@ on:
 permissions:
   actions: read
   contents: read
-  pages: write
-  id-token: write
 
 concurrency:
   group: github-pages
   cancel-in-progress: true
 
 jobs:
-  build-and-deploy:
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+  build:
     runs-on: ubuntu-latest
     steps:
       - name: Descargar código
@@ -34,12 +29,23 @@ jobs:
         run: npm test
       - name: Construir portal
         run: npm run build
-      - name: Preparar GitHub Pages
-        uses: actions/configure-pages@v5
       - name: Cargar sitio
         uses: actions/upload-pages-artifact@v3
         with:
           path: dist
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      pages: write
+      id-token: write
+    steps:
+      - name: Preparar GitHub Pages
+        uses: actions/configure-pages@v5
       - name: Publicar sitio
         id: deployment
         uses: actions/deploy-pages@v4
