@@ -223,8 +223,7 @@ function renderProducts() {
   }).join("");
 }
 
-function renderOrder() {
-  const draft = state.draft;
+function updateOrderSummary(draft) {
   const missing = countMissingLines(draft);
   const missingColors = countMissingColorLines(draft);
   const lineCount = draft.lines.length;
@@ -246,9 +245,13 @@ function renderOrder() {
   notice.textContent = missing
     ? `${missing === 1 ? "Un producto ya no aparece" : `${missing} productos ya no aparecen`} en el inventario actual. Elimina ${missing === 1 ? "ese renglón" : "esos renglones"} o agrégalos de nuevo con su código actualizado para poder descargar.`
     : "";
+}
 
+function renderOrder() {
+  const draft = state.draft;
+  updateOrderSummary(draft);
   const content = $("requestContent");
-  if (!lineCount) {
+  if (!draft.lines.length) {
     content.innerHTML = '<div class="request-empty"><span class="empty-icon" aria-hidden="true">▤</span><strong>Tu pedido está vacío</strong><span>Agrega productos desde el catálogo o importa una reposición desde Excel.</span></div>';
     syncControlStates();
     return;
@@ -256,7 +259,7 @@ function renderOrder() {
   content.innerHTML = `<div class="request-lines">${draft.lines.map((line, index) => {
     const colors = getPersianaColors(line.product);
     return `
-      <div class="order-line">
+      <div class="order-line" data-order-line="${index}">
         <span class="order-line-product">
           <strong>${escapeHtml(line.product.fullDescription || line.product.item)}</strong>
           <small class="${line.missing ? "stale-label" : ""}">${escapeHtml(line.product.code)}${line.missing ? " · No está en el inventario actual" : ""}</small>
@@ -270,6 +273,45 @@ function renderOrder() {
       </div>`;
   }).join("")}</div>`;
   syncControlStates();
+}
+
+function removeOrderLine(index) {
+  const nextDraft = removeLine(state.draft, index);
+  if (nextDraft === state.draft) return;
+
+  const content = $("requestContent");
+  const list = content.querySelector(".request-lines");
+  const row = list?.querySelector(`[data-order-line="${index}"]`);
+  if (!list || !row) {
+    saveDraft(nextDraft);
+    return;
+  }
+
+  saveDraft(nextDraft, false);
+  row.remove();
+  const remainingRows = [...list.querySelectorAll(".order-line")];
+  if (remainingRows.length) {
+    remainingRows.forEach((remainingRow, lineIndex) => {
+      remainingRow.dataset.orderLine = String(lineIndex);
+      const quantity = remainingRow.querySelector("[data-line-quantity]");
+      const unit = remainingRow.querySelector("[data-line-unit]");
+      const color = remainingRow.querySelector("[data-line-color]");
+      const remove = remainingRow.querySelector("[data-remove-line]");
+      if (quantity) quantity.dataset.lineQuantity = String(lineIndex);
+      if (unit) unit.dataset.lineUnit = String(lineIndex);
+      if (color) color.dataset.lineColor = String(lineIndex);
+      if (remove) remove.dataset.removeLine = String(lineIndex);
+    });
+  } else {
+    content.innerHTML = '<div class="request-empty"><span class="empty-icon" aria-hidden="true">▤</span><strong>Tu pedido está vacío</strong><span>Agrega productos desde el catálogo o importa una reposición desde Excel.</span></div>';
+  }
+
+  updateOrderSummary(state.draft);
+  syncControlStates();
+  if (remainingRows.length) {
+    const focusIndex = Math.min(index, remainingRows.length - 1);
+    list.querySelector(`[data-remove-line="${focusIndex}"]`)?.focus({ preventScroll: true });
+  }
 }
 
 function renderAll() {
@@ -684,7 +726,7 @@ function configureOrderControls() {
   $("requestContent").addEventListener("click", (event) => {
     const button = event.target.closest("[data-remove-line]");
     if (!button) return;
-    saveDraft(removeLine(state.draft, Number(button.dataset.removeLine)));
+    removeOrderLine(Number(button.dataset.removeLine));
   });
   for (const [id, field] of [["managerInput", "manager"], ["phoneInput", "phone"], ["orderInput", "orderNumber"]]) {
     $(id).addEventListener("input", (event) => updateDraftField(field, event.target.value));
